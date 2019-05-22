@@ -88,7 +88,9 @@ public:
 
     ~Manager()
     {
-        release_thread_if_finished();
+        while(thread_container.size()) {
+            release_thread_if_finished();
+        }
     }
 };
 
