@@ -7,6 +7,7 @@
 
 #include <thread>
 #include <vector>
+#include <list>
 #include <utility>
 #include <chrono>
 #include <queue>
@@ -18,44 +19,37 @@ class Manager
 {
 private:
     int baristar_size;
-    int assigned_baristar; // 업무중인 바리스타
-    std::vector<std::pair<std::thread, Barista>> thread_container;
-    std::vector<bool> assigned;
+    std::vector<std::pair<std::thread, int>> thread_container;
+    std::queue<int> available_barista;
     std::queue<Beverage> task_queue;
 
-    int generate_id()
+    int select_barista()
     {
-        int id;
-        for(int i=0; i<assigned.size(); ++i){
-            if(!assigned[i]){
-                assigned[i] = true;
-                return i;
-            }
-        }
-        return -1;
+        auto ret = available_barista.front();
+        available_barista.pop();
+        return ret;
     }
 public:
-    Manager(int size):baristar_size(size),
-                           assigned_baristar(0),
-                           assigned(std::vector<bool>(size, false))
-                           {}
+    Manager(int size):baristar_size(size)
+    {
+        for(int i=0; i<size; ++i){
+            available_barista.push(i+1);
+        }
+    }
 
     void assign_thread()
     {
-        if(assigned_baristar == baristar_size) throw "모든 바리스타가 커피를 만들고 있습니다..";
+        if(available_barista.empty()) throw "모든 바리스타가 커피를 만들고 있습니다..";
         if(task_queue.empty()) throw "작업이 없습니다.";
 
         auto task = task_queue.front();
         task_queue.pop();
 
-        int id = generate_id();
-        Barista barista{id};
+        int next_barista = select_barista();
         thread_container.push_back(
                 std::make_pair(
-                        std::move(std::thread{&Barista::make_beverage, barista, task})
-                        , barista)
+                        std::move(std::thread{&Barista::make_beverage, Barista{next_barista}, task}), next_barista)
         );
-        assigned_baristar++;
     }
 
     void push_task(Beverage b)
@@ -70,29 +64,26 @@ public:
 
     bool pool_available()
     {
-        return assigned_baristar < baristar_size;
+        return !available_barista.empty();
     }
 
     bool all_pool_available()
     {
-        return assigned_baristar == 0;
+        return available_barista.size() == baristar_size;
     }
 
     void release_thread_if_finished()
     {
-        for(auto iter = thread_container.begin();
-            iter < thread_container.end() ;
-            ++iter){
-
-            if(iter->first.joinable()){
+        auto iter = thread_container.begin();
+        while (iter != thread_container.end())
+            if (iter->first.joinable()) {
                 iter->first.join();
 
-                assigned[iter->second.get_id()] = false;
+                available_barista.push(iter->second);
                 thread_container.erase(iter);
-                assigned_baristar--;
+                break;
             }
-
-        }
+        ++iter;
     }
 
     ~Manager()
